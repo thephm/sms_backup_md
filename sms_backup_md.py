@@ -226,7 +226,7 @@ def loadMessages(fileName, messages, reactions, config):
 
 # main
 
-messages = []
+messages = []  # holds all of the messages
 reactions = [] # required by `message_md` but not used for SMS messages
 
 config = message_md.Config()
