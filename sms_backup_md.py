@@ -1,9 +1,6 @@
-#import time
 import os
-#import lxml.etree as ET
 from lxml.etree import XMLParser, parse
 import base64
-import re
 
 import pathlib
 from pathlib import Path
@@ -12,6 +9,10 @@ from os.path import exists
 import sys
 sys.path.insert(1, '../message_md/')
 import message_md
+import config
+import markdown
+import attachment
+import message
 
 #-----------------------------------------------------------------------------
 # 
@@ -132,16 +133,16 @@ def parseMMS(mms, message, config):
             attachmentType = config.MIMETypes[child.get(MMS_CT)]
             attachmentType
             if attachmentType in [JPG, JPEG, PNG, BMP, PDF]:
-                attachment = message_md.Attachment()
-                attachment.type = IMAGE_JPEG # @todo do this for each type!
-                attachment.id = child.get(MMS_CL)
-                fileName = os.path.join(config.attachmentsSubFolder, attachment.id) 
+                theAttachment = attachment.Attachment()
+                theAttachment.type = IMAGE_JPEG # @todo do this for each type!
+                theAttachment.id = child.get(MMS_CL)
+                fileName = os.path.join(config.attachmentsSubFolder, theAttachment.id) 
                 fileName = os.path.join(config.sourceFolder, fileName) 
                 mediaFile = open(fileName, 'wb')
                 decoded = base64.b64decode(child.get(MMS_DATA))
                 mediaFile.write(decoded)
                 mediaFile.close()
-                message.addAttachment(attachment)
+                message.addAttachment(theAttachment)
             if attachmentType == TXT:
                 message.body = child.get(MMS_TEXT)
         except Exception as e:
@@ -164,7 +165,9 @@ def parseMMS(mms, message, config):
             except:
                 pass
         else:
-            personSlug = config.mySlug
+            person = config.getMe()
+            personSlug = person.slug
+            phoneNumbers.append(person.phoneNumber)
 
         addressType = addr.get(MMS_TYPE)
         if personSlug:
@@ -206,32 +209,32 @@ def loadMessages(fileName, messages, reactions, config):
         root = tree.getroot()
 
         for child in root.iter():
-            message = message_md.Message()
+            theMessage = message.Message()
 
-            parseCommon(child, message)
+            parseCommon(child, theMessage)
             if child.tag == SMS:
-                parseSMS(child, message)
+                parseSMS(child, theMessage)
             elif child.tag == MMS:
-                parseMMS(child, message, config)
+                parseMMS(child, theMessage, config)
             else:
                 continue
 
-            if len(message.body) or len(message.attachments):
-                messages.append(message)
+            if len(theMessage.body) or len(theMessage.attachments):
+                messages.append(theMessage)
             else:
                 if config.debug:
-                    print(config.getStr(config.STR_NO_MESSAGE_BODY_OR_ATTACHMENT) + ": " +message.phoneNumber)
+                    print(config.getStr(config.STR_NO_MESSAGE_BODY_OR_ATTACHMENT) + ": " + theMessage.phoneNumber)
 
     return True
 
 # main
 
-messages = []  # holds all of the messages
-reactions = [] # required by `message_md` but not used for SMS messages
+theMessages = []
+theReactions = [] # required by `message_md` but not used for SMS messages
 
-config = message_md.Config()
+config = config.Config()
 
-if message_md.setup(config, message_md.YAML_SERVICE_SMS):
+if message_md.setup(config, markdown.YAML_SERVICE_SMS):
 
     # create the working folder `attachments` under the source message folder
     # so media files can be created there from the MMS messages
@@ -241,4 +244,4 @@ if message_md.setup(config, message_md.YAML_SERVICE_SMS):
 
     # needs to be after setup so the command line parameters override the
     # values defined in the settings file
-    message_md.markdown(config, loadMessages, messages, reactions)
+    message_md.getMarkdown(config, loadMessages, theMessages, theReactions)
