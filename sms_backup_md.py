@@ -14,6 +14,8 @@ import markdown
 import attachment
 import message
 
+MIN_PHONE_NUMBER_LEN = 7
+
 #-----------------------------------------------------------------------------
 # 
 # Parser for SMS Backup and Restore XSL file output
@@ -97,7 +99,7 @@ PDF = "pdf"
 def parseCommon(sms_mms, message):
     message.phoneNumber = sms_mms.get(SMS_ADDRESS)
     try:
-        message.timeStamp = int(sms_mms.get(SMS_DATE))
+        message.timeStamp = int(sms_mms.get(SMS_DATE))/1000
         message.setDateTime()
     except:
         pass
@@ -123,21 +125,23 @@ def parseCommon(sms_mms, message):
 #      could be wrong but needed a person/name
 # 
 #-----------------------------------------------------------------------------
-def parseMMS(mms, message, config):
+def parseMMS(mms, message, theConfig):
+
+    result = False
 
     phoneNumbers = []  # phone numbers for each person the message was sent to
 
     # get the attachments OR text message between groups of people
     for child in mms.find(MMS_PARTS):
         try:
-            attachmentType = config.MIMETypes[child.get(MMS_CT)]
+            attachmentType = theConfig.MIMETypes[child.get(MMS_CT)]
             attachmentType
             if attachmentType in [JPG, JPEG, PNG, BMP, PDF]:
                 theAttachment = attachment.Attachment()
                 theAttachment.type = IMAGE_JPEG # @todo do this for each type!
                 theAttachment.id = child.get(MMS_CL)
-                fileName = os.path.join(config.attachmentsSubFolder, theAttachment.id) 
-                fileName = os.path.join(config.sourceFolder, fileName) 
+                fileName = os.path.join(theConfig.attachmentsSubFolder, theAttachment.id) 
+                fileName = os.path.join(theConfig.sourceFolder, fileName) 
                 mediaFile = open(fileName, 'wb')
                 decoded = base64.b64decode(child.get(MMS_DATA))
                 mediaFile.write(decoded)
@@ -155,7 +159,7 @@ def parseMMS(mms, message, config):
         phoneNumber = addr.get(MMS_ADDRESS)
         if not phoneNumber == MMS_INSERT_ADDRESS_TOKEN:
             try:
-                person = config.getPersonByNumber(phoneNumber)
+                person = theConfig.getPersonByNumber(phoneNumber)
                 
                 if phoneNumber not in phoneNumbers:
                     phoneNumbers.append(phoneNumber)
@@ -165,7 +169,7 @@ def parseMMS(mms, message, config):
             except:
                 pass
         else:
-            person = config.getMe()
+            person = theConfig.getMe()
             personSlug = person.slug
             phoneNumbers.append(person.phoneNumber)
 
@@ -173,36 +177,48 @@ def parseMMS(mms, message, config):
         if personSlug:
             if addressType == MMS_FROM:
                 message.sourceSlug = personSlug
+                result = True
             elif addressType == MMS_TO:
                 message.destinationSlug = personSlug 
+                result = True
 
     if len(phoneNumbers) > 2:
-        message.groupSlug = config.getGroupSlugByPhoneNumbers(phoneNumbers)
+        message.groupSlug = theConfig.getGroupSlugByPhoneNumbers(phoneNumbers)
+
+    return result
 
 # parse the SMS specific fields
-def parseSMS(sms, message):
+def parseSMS(sms, message, theConfig):
+    
+    result = False
     message.body = sms.get(SMS_BODY)
 
     phoneNumber = message.phoneNumber
 
-    if len(phoneNumber):
-        person = config.getPersonByNumber(phoneNumber)
+    if len(phoneNumber) >= MIN_PHONE_NUMBER_LEN:
+        person = theConfig.getPersonByNumber(phoneNumber)
 
-    if person:
-        if sms.get(SMS_TYPE) == SMS_RECEIVED:
-            message.sourceSlug = person.slug
-            message.destinationSlug = config.mySlug
-        elif sms.get(SMS_TYPE) == SMS_SENT:
-            message.sourceSlug = config.mySlug
-            message.destinationSlug = person.slug
+        if person:
+            if sms.get(SMS_TYPE) == SMS_RECEIVED:
+                message.sourceSlug = person.slug
+                message.destinationSlug = theConfig.mySlug
+                result = True
 
-def loadMessages(fileName, messages, reactions, config):
+            elif sms.get(SMS_TYPE) == SMS_SENT:
+                message.sourceSlug = theConfig.mySlug
+                message.destinationSlug = person.slug
+                result = True
+
+    return result
+
+def loadMessages(fileName, messages, reactions, theConfig):
 
     p = XMLParser(huge_tree=True)
+    result = False
 
     if not os.path.exists(fileName):
-        if config.debug:
-            print(config.getStr(config.STR_COULD_NOT_LOAD_MESSAGES_FILE) + ": " + fileName)
+        if theConfig.debug:
+            print(theConfig.getStr(theConfig.STR_COULD_NOT_LOAD_MESSAGES_FILE) + ": " + fileName)
         return False
     else:
         tree = parse(fileName, parser=p)
@@ -213,17 +229,17 @@ def loadMessages(fileName, messages, reactions, config):
 
             parseCommon(child, theMessage)
             if child.tag == SMS:
-                parseSMS(child, theMessage)
+                result = parseSMS(child, theMessage, theConfig)
             elif child.tag == MMS:
-                parseMMS(child, theMessage, config)
+                result = parseMMS(child, theMessage, theConfig)
             else:
                 continue
 
-            if len(theMessage.body) or len(theMessage.attachments):
-                messages.append(theMessage)
-            else:
-                if config.debug:
-                    print(config.getStr(config.STR_NO_MESSAGE_BODY_OR_ATTACHMENT) + ": " + theMessage.phoneNumber)
+            if result:
+                if len(theMessage.body) or len(theMessage.attachments):
+                    messages.append(theMessage)
+                elif theConfig.debug:
+                   print(theConfig.getStr(theConfig.STR_NO_MESSAGE_BODY_OR_ATTACHMENT) + ": " + theMessage.phoneNumber)
 
     return True
 
@@ -232,16 +248,16 @@ def loadMessages(fileName, messages, reactions, config):
 theMessages = []
 theReactions = [] # required by `message_md` but not used for SMS messages
 
-config = config.Config()
+theConfig = config.Config()
 
-if message_md.setup(config, markdown.YAML_SERVICE_SMS):
+if message_md.setup(theConfig, markdown.YAML_SERVICE_SMS):
 
     # create the working folder `attachments` under the source message folder
     # so media files can be created there from the MMS messages
-    folder = os.path.join(config.sourceFolder, config.attachmentsSubFolder) 
+    folder = os.path.join(theConfig.sourceFolder, theConfig.attachmentsSubFolder) 
     if not os.path.exists(folder):
         Path(folder).mkdir(parents=True, exist_ok=True)
 
     # needs to be after setup so the command line parameters override the
     # values defined in the settings file
-    message_md.getMarkdown(config, loadMessages, theMessages, theReactions)
+    message_md.getMarkdown(theConfig, loadMessages, theMessages, theReactions)
