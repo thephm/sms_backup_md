@@ -171,7 +171,7 @@ def parseMMS(mms, message, theConfig):
         else:
             person = theConfig.getMe()
             personSlug = person.slug
-            phoneNumbers.append(person.phoneNumber)
+            phoneNumbers.append(person.mobile)
 
         addressType = addr.get(MMS_TYPE)
         if personSlug:
