@@ -169,17 +169,16 @@ def parseMMS(mms, message, theConfig):
             except:
                 pass
         else:
-            person = theConfig.getMe()
-            personSlug = person.slug
-            phoneNumbers.append(person.mobile)
+            personSlug = theConfig.me.slug
+            phoneNumbers.append(theConfig.me.mobile)
 
         addressType = addr.get(MMS_TYPE)
         if personSlug:
             if addressType == MMS_FROM:
-                message.sourceSlug = personSlug
+                message.fromSlug = personSlug
                 result = True
             elif addressType == MMS_TO:
-                message.destinationSlug = personSlug 
+                message.toSlugs.append(personSlug) 
                 result = True
 
     if len(phoneNumbers) > 2:
@@ -200,13 +199,13 @@ def parseSMS(sms, message, theConfig):
 
         if person:
             if sms.get(SMS_TYPE) == SMS_RECEIVED:
-                message.sourceSlug = person.slug
-                message.destinationSlug = theConfig.mySlug
+                message.fromSlug = person.slug
+                message.toSlugs.append(theConfig.me.slug)
                 result = True
 
             elif sms.get(SMS_TYPE) == SMS_SENT:
-                message.sourceSlug = theConfig.mySlug
-                message.destinationSlug = person.slug
+                message.fromSlug = theConfig.me.slug
+                message.toSlugs.append(person.slug)
                 result = True
 
     return result
