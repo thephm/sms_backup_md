@@ -194,7 +194,7 @@ def parseSMS(sms, message, theConfig):
 
     phoneNumber = message.phoneNumber
 
-    if len(phoneNumber) >= MIN_PHONE_NUMBER_LEN:
+    if phoneNumber and len(phoneNumber) >= MIN_PHONE_NUMBER_LEN:
         person = theConfig.getPersonByNumber(phoneNumber)
 
         if person:
