@@ -12,6 +12,14 @@ Make sure to install `libxml` e.g. `sudo apt-get install python-lxml`
 
 If that gave an issue, I also had to `pip install --upgrade lxml`s
 
- ## License
+## How to use it
+
+If your name is `bob` and you want to convert all messages since `1990-01-01`
+
+```shell
+python3 sms_backup_md.py -m bob  -c ../../dev-output/config -f ../../sms/sms-20240505003555.xml -o ../../dev-output -d -b 1990-01-01
+```
+
+## License
 
  Apache License 2.0

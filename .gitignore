@@ -1,2 +1,6 @@
 
 sms_backup.xsl
+*.pyproj
+*.sln
+*.vsidx
+*.vs
