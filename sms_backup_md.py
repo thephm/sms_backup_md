@@ -125,7 +125,7 @@ def parse_common(sms_mms, message):
 def message_exists(target_id, messages):
 
     for message in messages:
-        if message.id == target_id:
+        if target_id and message.id == target_id:
             return True
     return False
 
@@ -222,9 +222,6 @@ def parse_sms(sms, message, the_config):
     message.body = sms.get(SMS_BODY)
     message.id = sms.get(SMS_IMDN_MESSAGE_ID)
 
-    if message.id == "afcc7c46-a900-4e31-be69-917bb9d4074a":
-        print("WTF2") 
-
     phone_number = message.phone_number
                 
     if phone_number and len(phone_number) >= MIN_PHONE_NUMBER_LEN:
@@ -271,7 +268,7 @@ def load_messages(filename, messages, reactions, the_config):
                 continue
 
             if result:
-                if not message_exists(the_message.id, messages) and len(the_message.body) or len(the_message.attachments):
+                if not message_exists(the_message.id, messages) and (len(the_message.body) or len(the_message.attachments)):
                     messages.append(the_message)
                 elif the_config.debug:
                    print(the_config.get_str(the_config.STR_NO_MESSAGE_BODY_OR_ATTACHMENT) + ": " + the_message.phone_number)
