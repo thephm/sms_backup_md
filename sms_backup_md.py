@@ -155,6 +155,7 @@ def parse_mms(mms, message, the_config):
     result = False
     
     message.id = mms.get(MMS_M_ID)
+    filename = ""
 
     phone_numbers = []  # phone numbers for each person the message was sent to
 
@@ -162,18 +163,20 @@ def parse_mms(mms, message, the_config):
     for child in mms.find(MMS_PARTS):
         try:
             attachment_type = the_config.mime_types[child.get(MMS_CT)]
-            attachment_type
             if attachment_type in [JPG, JPEG, PNG, BMP, PDF]:
                 the_attachment = attachment.Attachment()
                 the_attachment.type = IMAGE_JPEG # @todo do this for each type!
                 the_attachment.id = child.get(MMS_CL)
-                filename = os.path.join(the_config.attachments_subfolder, the_attachment.id) 
-                filename = os.path.join(the_config.source_folder, filename) 
-                mediaFile = open(filename, 'wb')
-                decoded = base64.b64decode(child.get(MMS_DATA))
-                mediaFile.write(decoded)
-                mediaFile.close()
-                message.add_attachment(the_attachment)
+                
+                # added "if" https://github.com/thephm/sms_backup_md/issues/4
+                if not (the_attachment.id == "null"):
+                    filename = os.path.join(the_config.attachments_subfolder, the_attachment.id) 
+                    filename = os.path.join(the_config.source_folder, filename)
+                    mediaFile = open(filename, 'wb')
+                    decoded = base64.b64decode(child.get(MMS_DATA))
+                    mediaFile.write(decoded)
+                    mediaFile.close()
+                    message.add_attachment(the_attachment)
             if attachment_type == TXT:
                 message.body = child.get(MMS_TEXT)
         except Exception as e:
@@ -198,13 +201,13 @@ def parse_mms(mms, message, the_config):
         else:
             person_slug = the_config.me.slug
             phone_numbers.append(the_config.me.mobile)
-
+            
         address_type = addr.get(MMS_TYPE)
         if person_slug:
             if address_type == MMS_FROM:
                 message.from_slug = person_slug
-                message.to_slugs.append(the_config.me.slug)
                 result = True
+
             elif address_type == MMS_TO:
                 message.from_slug = the_config.me.slug
                 message.to_slugs.append(person_slug) 
@@ -212,7 +215,7 @@ def parse_mms(mms, message, the_config):
 
     if len(phone_numbers) > 2:
         message.group_slug = the_config.get_group_slug_by_phone_numbers(phone_numbers)
-
+        
     return result
 
 # parse the SMS specific fields
@@ -264,14 +267,12 @@ def load_messages(filename, messages, reactions, the_config):
                 result = parse_sms(child, the_message, the_config)
             elif child.tag == MMS:
                 result = parse_mms(child, the_message, the_config)
-            else:
-                continue
 
             if result:
-                if not message_exists(the_message.id, messages) and (len(the_message.body) or len(the_message.attachments)):
-                    messages.append(the_message)
-                elif the_config.debug:
-                   print(the_config.get_str(the_config.STR_NO_MESSAGE_BODY_OR_ATTACHMENT) + ": " + the_message.phone_number)
+                # to fix https://github.com/thephm/sms_backup_md/issues/2
+                if not message_exists(the_message.id, messages):
+                    if len(the_message.body) or len(the_message.attachments):
+                        messages.append(the_message)
 
     return True
 
