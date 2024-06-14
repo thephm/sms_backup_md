@@ -131,7 +131,7 @@ def message_exists(target_id, messages):
 
 #-----------------------------------------------------------------------------
 # 
-# Parse the MMS specific fields. Could be images or text.
+# Parse the MMS specific fields into a Message object. Could be images or text.
 #
 # Parameters:
 #
@@ -190,26 +190,25 @@ def parse_mms(mms, message, the_config):
         if not phone_number == MMS_INSERT_ADDRESS_TOKEN:
             try:
                 person = the_config.get_person_by_number(phone_number)
-                
+
                 if phone_number not in phone_numbers:
                     phone_numbers.append(phone_number)
-
-                if person:
                     person_slug = person.slug
             except:
                 pass
         else:
             person_slug = the_config.me.slug
             phone_numbers.append(the_config.me.mobile)
-            
+
         address_type = addr.get(MMS_TYPE)
+
         if person_slug:
+            
             if address_type == MMS_FROM:
                 message.from_slug = person_slug
                 result = True
 
             elif address_type == MMS_TO:
-                message.from_slug = the_config.me.slug
                 message.to_slugs.append(person_slug) 
                 result = True
 
