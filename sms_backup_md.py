@@ -73,21 +73,8 @@ MMS_TO = "151"     # e.g. <addr address="+12895551313" type="151" charset="106" 
 MMS_INSERT_ADDRESS_TOKEN = "insert-address-token" # possible bug in their XML output
 
 # MIME Types
-IMAGE_JPEG = "image/jpeg"
-JPG = "jpg"
-JPEG = "jpeg"
-
-IMAGE_PNG = "image/png"
-PNG = "png"
-
-IMAGE_BMP = "image/x-ms-bmp"
-BMP = "bmp"
-
-TEXT_PLAIN = "text/plain"
 TXT = "txt"
-
-APPLICATION_PDF = "application/pdf"
-PDF = "pdf"
+SMIL = "smil"
 
 #-----------------------------------------------------------------------------
 # 
@@ -162,10 +149,11 @@ def parse_mms(mms, message, the_config):
     # get the attachments OR text message between groups of people
     for child in mms.find(MMS_PARTS):
         try:
-            attachment_type = the_config.mime_types[child.get(MMS_CT)]
-            if attachment_type in [JPG, JPEG, PNG, BMP, PDF]:
+            content_type = child.get(MMS_CT)
+            attachment_type = the_config.mime_types[content_type]
+            if attachment_type != TXT and attachment_type != SMIL:
                 the_attachment = attachment.Attachment()
-                the_attachment.type = IMAGE_JPEG # @todo do this for each type!
+                the_attachment.type = attachment_type
                 the_attachment.id = child.get(MMS_CL)
                 
                 # added "if" https://github.com/thephm/sms_backup_md/issues/4
@@ -177,7 +165,7 @@ def parse_mms(mms, message, the_config):
                     mediaFile.write(decoded)
                     mediaFile.close()
                     message.add_attachment(the_attachment)
-            if attachment_type == TXT:
+            elif attachment_type == TXT:
                 message.body = child.get(MMS_TEXT)
         except Exception as e:
             print(e)
