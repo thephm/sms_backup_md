@@ -153,7 +153,7 @@ def parse_mms(mms, message, the_config):
             attachment_type = the_config.mime_types[content_type]
             if attachment_type != TXT and attachment_type != SMIL:
                 the_attachment = attachment.Attachment()
-                the_attachment.type = attachment_type
+                the_attachment.type = content_type
                 the_attachment.id = child.get(MMS_CL)
                 
                 # added "if" https://github.com/thephm/sms_backup_md/issues/4
@@ -202,6 +202,17 @@ def parse_mms(mms, message, the_config):
 
     if len(phone_numbers) > 2:
         message.group_slug = the_config.get_group_slug_by_phone_numbers(phone_numbers)
+    elif len(phone_numbers) == 1:
+        # https://github.com/thephm/sms_backup_md/issues/7
+        # Messages with MMS images not placed in the same file as conversation
+        # This is caused because my phone number is not included
+        if address_type == MMS_FROM:
+            message.to_slugs.append(the_config.me.slug) 
+            result = True
+
+        elif address_type == MMS_TO:
+            message.from_slug = the_config.me.slug
+            result = True
         
     return result
 
