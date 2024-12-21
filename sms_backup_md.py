@@ -68,6 +68,7 @@ MMS_ADDR = "addr"
 # the `type` <addrs> attributes
 MMS_ADDRESS = "address"
 MMS_TYPE = "type"
+MMS_CC = "130"  
 MMS_FROM = "137"   # e.g. <addr address="+12895551212" type="137" charset="106" />
 MMS_TO = "151"     # e.g. <addr address="+12895551313" type="151" charset="106" />
 MMS_INSERT_ADDRESS_TOKEN = "insert-address-token" # possible bug in their XML output
@@ -186,13 +187,14 @@ def parse_mms(mms, message, the_config):
                 pass
         else:
             person_slug = the_config.me.slug
-            phone_numbers.append(the_config.me.mobile)
+            if phone_number not in phone_numbers:
+                phone_numbers.append(the_config.me.mobile)
 
         address_type = addr.get(MMS_TYPE)
 
         if person_slug:
             
-            if address_type == MMS_FROM:
+            if address_type == MMS_FROM or address_type == MMS_CC:
                 message.from_slug = person_slug
                 result = True
 
@@ -206,14 +208,14 @@ def parse_mms(mms, message, the_config):
         # https://github.com/thephm/sms_backup_md/issues/7
         # Messages with MMS images not placed in the same file as conversation
         # This is caused because my phone number is not included
-        if address_type == MMS_FROM:
+        if address_type == MMS_FROM or address_type == MMS_CC:
             message.to_slugs.append(the_config.me.slug) 
             result = True
 
         elif address_type == MMS_TO:
             message.from_slug = the_config.me.slug
             result = True
-        
+
     return result
 
 # parse the SMS specific fields
@@ -268,7 +270,7 @@ def load_messages(filename, messages, reactions, the_config):
 
             if result:
                 # to fix https://github.com/thephm/sms_backup_md/issues/2
-                if not message_exists(the_message.id, messages):
+                if the_message.id == "null" or not message_exists(the_message.id, messages):
                     if len(the_message.body) or len(the_message.attachments):
                         messages.append(the_message)
 
