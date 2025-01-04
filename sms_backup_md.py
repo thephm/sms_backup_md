@@ -7,6 +7,8 @@ import pathlib
 from pathlib import Path
 from os.path import exists
 
+import logging
+
 import sys
 sys.path.insert(1, '../message_md/')
 import message_md
@@ -158,18 +160,21 @@ def parse_mms(mms, message, the_config):
                 the_attachment.id = child.get(MMS_CL)
                 
                 # added "if" https://github.com/thephm/sms_backup_md/issues/4
-                if not (the_attachment.id == "null"):
+                if the_attachment.id and the_attachment.id != "null":
                     filename = os.path.join(the_config.attachments_subfolder, the_attachment.id) 
                     filename = os.path.join(the_config.source_folder, filename)
-                    mediaFile = open(filename, 'wb')
-                    decoded = base64.b64decode(child.get(MMS_DATA))
-                    mediaFile.write(decoded)
-                    mediaFile.close()
+                    try:
+                        with open(filename, 'wb') as mediaFile:
+                            decoded = base64.b64decode(child.get(MMS_DATA))
+                            mediaFile.write(decoded)
+                    except Exception as e:
+                        logging.error(f"Failed to write attachment {filename}: {e}")
+
                     message.add_attachment(the_attachment)
             elif attachment_type == TXT:
                 message.body = child.get(MMS_TEXT)
         except Exception as e:
-            print(e)
+            logging.error(f"{the_config.get_str(the_config.STR_COULD_NOT_PROCESS_MMS_PART)}: {e}")
             pass
 
     # get the addresses
@@ -242,7 +247,7 @@ def parse_sms(sms, message, the_config):
                 result = True
 
         elif the_config.debug:
-            print("No one with phone number '" + phone_number + "' found.")
+            logging.error(f"{the_config.get_str(the_config.STR_NO_PERSON_WITH_PHONE_NUMBER)}: {phone_number}")
 
     return result
 
@@ -253,7 +258,7 @@ def load_messages(filename, messages, reactions, the_config):
 
     if not os.path.exists(filename):
         if the_config.debug:
-            print(the_config.get_str(the_config.STR_COULD_NOT_LOAD_MESSAGES_FILE) + ": " + filename)
+            logging.error(f"{the_config.get_str(the_config.STR_COULD_NOT_FIND_MESSAGES_FILE)}: {filename}")
         return False
     else:
         tree = parse(filename, parser=p)
@@ -287,9 +292,12 @@ if message_md.setup(the_config, markdown.YAML_SERVICE_SMS):
 
     # create the working folder `attachments` under the source message folder
     # so media files can be created there from the MMS messages
-    folder = os.path.join(the_config.source_folder, the_config.attachments_subfolder) 
-    if not os.path.exists(folder):
-        Path(folder).mkdir(parents=True, exist_ok=True)
+    folder = os.path.join(the_config.source_folder, the_config.attachments_subfolder)
+    try:
+        if not os.path.exists(folder):
+            Path(folder).mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        logging.error(f"{the_config.get_str(the_config.STR_COULD_CREATE_ATTACHMENTS_SUBFOLDER)}: {folder}. Error: {str(e)}")
 
     # needs to be after setup so the command line parameters override the
     # values defined in the settings file
