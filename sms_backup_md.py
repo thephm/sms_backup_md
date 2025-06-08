@@ -79,17 +79,18 @@ MMS_INSERT_ADDRESS_TOKEN = "insert-address-token" # possible bug in their XML ou
 TXT = "txt"
 SMIL = "smil"
 
-#-----------------------------------------------------------------------------
-# 
-# Parse the fields that are common between SMS and MMS messages
-#
-# Parameters:
-#
-#    - sms_mms - the actual message XML
-#    - message - the target Message object (which will contain Attachment)
-#
-#-----------------------------------------------------------------------------
 def parse_common(sms_mms, message):
+    """
+    Parse the fields that are common between SMS and MMS messages.
+
+    Args:
+        sms_mms (XML): the actual message in XML format
+        message (Message): the target Message object (which will contain 
+            Attachment)
+
+    Returns:
+        None
+    """
     message.phone_number = sms_mms.get(SMS_ADDRESS)
     try:
         message.timestamp = int(sms_mms.get(SMS_DATE))/1000
@@ -97,50 +98,50 @@ def parse_common(sms_mms, message):
     except:
         pass
 
-#-----------------------------------------------------------------------------
-# 
-# Check that the message hasn't already been found.
-#
-# Parameters:
-#
-#    - target_id - the message ID (SMS_IMDN_MESSAGE_ID or MMS_M_ID) 
-#    - messages  - collection of [Messages]
-#
-# Notes:
-#
-#    - For some reason with SMS Backup & Restore Android tool, there are 
-#      sometimes the same message as an SMS and and MMS in the export
-#
-#-----------------------------------------------------------------------------
 def message_exists(target_id, messages):
+    """
+    Check that the message hasn't already been found.
 
+    Args:
+        target_id (str): the message ID (SMS_IMDN_MESSAGE_ID or MMS_M_ID)
+        messages (list[Message]): collection of Messages
+
+    Returns:
+        bool: True if found, False otherwise.
+
+    Notes:
+        For some reason with SMS Backup & Restore Android tool, there are 
+        sometimes the same message as an SMS and and MMS in the export so 
+        needed a way to check if the message already exists in the
+        collection of messages.
+    """
     for message in messages:
         if target_id and message.id == target_id:
             return True
     return False
 
-#-----------------------------------------------------------------------------
-# 
-# Parse the MMS specific fields into a Message object. Could be images or text.
-#
-# Parameters:
-#
-#    - mms - the actual message XML
-#    - message - the target Message object (which will contain Attachment)
-#    - config - the configuration
-#
-# Notes:
-# 
-#    - body of the message is base64 encoded binary content in `part`
-#    - addr
-#        address - The phone number of the sender/recipient.
-#        type - The type of address, 129 = BCC, 130 = CC, 151 = To, 137 = From
-#    - seems to be an Android issue where 'insert-address-token' gets put into
-#      an address field so this function assumes the address was "me" which 
-#      could be wrong but needed a person/name
-# 
-#-----------------------------------------------------------------------------
 def parse_mms(mms, message, the_config):
+    """
+    Parse the MMS specific fields into a Message object: images or text.
+
+    Args:
+        mms (XML): the actual MMS message
+        message (Message): the target Message object which will contain 
+            Attachment
+        the_config (Config): the configuration object
+
+    Returns:
+        bool: True if the message was parsed successfully, False otherwise.
+
+    Notes:
+        - body of the message is base64 encoded binary content in `part`
+        - addr
+            address - The phone number of the sender/recipient.
+            type - The type of address, 129 = BCC, 130 = CC, 151 = To, 137 = From
+        - seems to be an Android issue where 'insert-address-token' gets put into
+          an address field so this function assumes the address was "me" which 
+          could be wrong but needed a person/name
+    """
 
     result = False
     
@@ -207,8 +208,13 @@ def parse_mms(mms, message, the_config):
                 message.to_slugs.append(person_slug) 
                 result = True
 
-    if len(phone_numbers) > 2:
+    # ensure my number is included
+    if the_config.me.mobile not in phone_numbers:
+        phone_numbers.append(the_config.me.mobile)
+
+    if len(phone_numbers) > 1:
         message.group_slug = the_config.get_group_slug_by_phone_numbers(phone_numbers)
+        result = True
     elif len(phone_numbers) == 1:
         # https://github.com/thephm/sms_backup_md/issues/7
         # Messages with MMS images not placed in the same file as conversation
@@ -223,8 +229,17 @@ def parse_mms(mms, message, the_config):
 
     return result
 
-# parse the SMS specific fields
 def parse_sms(sms, message, the_config):
+    """
+    Parse the SMS specific fields.
+
+    Args:
+        sms (XML): the actual SMS message
+        message (Message): the target Message object
+        the_config (Config): the configuration object
+    Returns:
+        bool: True if the message was parsed successfully, False otherwise.
+    """
     
     result = False
     message.body = sms.get(SMS_BODY)
@@ -252,6 +267,18 @@ def parse_sms(sms, message, the_config):
     return result
 
 def load_messages(filename, messages, reactions, the_config):
+    """
+    Load messages from the SMS Backup & Restore XML file.
+    
+    Args:
+        filename (str): the path to the XML file    
+        messages (list[Message]): collection of Message objects
+        reactions (list[Reaction]): collection of Reaction objects (not used)
+        the_config (Config): the configuration object
+    
+    Returns:
+        bool: True if the messages were loaded successfully, False otherwise.
+    """
 
     p = XMLParser(huge_tree=True)
     result = False
@@ -288,6 +315,12 @@ the_reactions = [] # required by `message_md` but not used for SMS messages
 
 the_config = config.Config()
 
+# set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s:%(name)s:%(message)s'
+)
+
 if message_md.setup(the_config, markdown.YAML_SERVICE_SMS):
 
     # create the working folder `attachments` under the source message folder
@@ -297,8 +330,11 @@ if message_md.setup(the_config, markdown.YAML_SERVICE_SMS):
         if not os.path.exists(folder):
             Path(folder).mkdir(parents=True, exist_ok=True)
     except Exception as e:
-        logging.error(f"{the_config.get_str(the_config.STR_COULD_CREATE_ATTACHMENTS_SUBFOLDER)}: {folder}. Error: {str(e)}")
+        logging.error(f"{the_config.get_str(the_config.STR_COULD_NOT_CREATE_ATTACHMENTS_SUBFOLDER)}: {folder}. Error: {str(e)}")
+
 
     # needs to be after setup so the command line parameters override the
     # values defined in the settings file
     message_md.get_markdown(the_config, load_messages, the_messages, the_reactions)
+else:
+    print(f"{the_config.get_str(the_config.STR_COULD_NOT_SETUP)}")
