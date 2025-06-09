@@ -98,7 +98,7 @@ def parse_common(sms_mms, message):
     except:
         pass
 
-def message_exists(target_id, messages):
+def get_existing_message(target_id, messages):
     """
     Check that the message hasn't already been found.
 
@@ -107,7 +107,7 @@ def message_exists(target_id, messages):
         messages (list[Message]): collection of Messages
 
     Returns:
-        bool: True if found, False otherwise.
+        Message: The existing Message if found, False otherwise.
 
     Notes:
         For some reason with SMS Backup & Restore Android tool, there are 
@@ -117,7 +117,7 @@ def message_exists(target_id, messages):
     """
     for message in messages:
         if target_id and message.id == target_id:
-            return True
+            return message
     return False
 
 def parse_mms(mms, message, the_config):
@@ -212,7 +212,7 @@ def parse_mms(mms, message, the_config):
     if the_config.me.mobile not in phone_numbers:
         phone_numbers.append(the_config.me.mobile)
 
-    if len(phone_numbers) > 1:
+    if len(phone_numbers) > 2:
         message.group_slug = the_config.get_group_slug_by_phone_numbers(phone_numbers)
         result = True
     elif len(phone_numbers) == 1:
@@ -226,6 +226,10 @@ def parse_mms(mms, message, the_config):
         elif address_type == MMS_TO:
             message.from_slug = the_config.me.slug
             result = True
+
+    if not message.from_slug:
+        # fallback: set to my slug
+        message.from_slug = the_config.me.slug
 
     return result
 
@@ -260,7 +264,7 @@ def parse_sms(sms, message, the_config):
                 message.from_slug = the_config.me.slug
                 message.to_slugs.append(person.slug)
                 result = True
-
+        
         elif the_config.debug:
             logging.error(f"{the_config.get_str(the_config.STR_NO_PERSON_WITH_PHONE_NUMBER)}: {phone_number}")
 
@@ -299,12 +303,16 @@ def load_messages(filename, messages, reactions, the_config):
                 result = parse_sms(child, the_message, the_config)
             elif child.tag == MMS:
                 result = parse_mms(child, the_message, the_config)
-
+            
             if result:
-                # to fix https://github.com/thephm/sms_backup_md/issues/2
-                if the_message.id == "null" or not message_exists(the_message.id, messages):
-                    if len(the_message.body) or len(the_message.attachments):
-                        messages.append(the_message)
+                # to fix https://github.com/thephm/sms_backup_md/issues/2  
+                # and now https://github.com/thephm/sms_backup_md/issues/13
+                existing_message = get_existing_message(the_message.id, messages)
+                if existing_message:
+                    messages.remove(existing_message)
+                    
+                if len(the_message.body):
+                    messages.append(the_message)
 
     return True
 
@@ -322,7 +330,6 @@ logging.basicConfig(
 )
 
 if message_md.setup(the_config, markdown.YAML_SERVICE_SMS):
-
     # create the working folder `attachments` under the source message folder
     # so media files can be created there from the MMS messages
     folder = os.path.join(the_config.source_folder, the_config.attachments_subfolder)
@@ -331,7 +338,6 @@ if message_md.setup(the_config, markdown.YAML_SERVICE_SMS):
             Path(folder).mkdir(parents=True, exist_ok=True)
     except Exception as e:
         logging.error(f"{the_config.get_str(the_config.STR_COULD_NOT_CREATE_ATTACHMENTS_SUBFOLDER)}: {folder}. Error: {str(e)}")
-
 
     # needs to be after setup so the command line parameters override the
     # values defined in the settings file
