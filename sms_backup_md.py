@@ -10,6 +10,8 @@ from os.path import exists
 import logging
 
 import sys
+sys.path.insert(1, '../hal/')
+import person
 sys.path.insert(1, '../message_md/')
 import message_md
 import config
@@ -150,34 +152,6 @@ def parse_mms(mms, message, the_config):
 
     phone_numbers = []  # phone numbers for each person the message was sent to
 
-    # get the attachments OR text message between groups of people
-    for child in mms.find(MMS_PARTS):
-        try:
-            content_type = child.get(MMS_CT)
-            attachment_type = the_config.mime_types[content_type]
-            if attachment_type != TXT and attachment_type != SMIL:
-                the_attachment = attachment.Attachment()
-                the_attachment.type = content_type
-                the_attachment.id = child.get(MMS_CL)
-                
-                # added "if" https://github.com/thephm/sms_backup_md/issues/4
-                if the_attachment.id and the_attachment.id != "null":
-                    filename = os.path.join(the_config.attachments_subfolder, the_attachment.id) 
-                    filename = os.path.join(the_config.source_folder, filename)
-                    try:
-                        with open(filename, 'wb') as mediaFile:
-                            decoded = base64.b64decode(child.get(MMS_DATA))
-                            mediaFile.write(decoded)
-                    except Exception as e:
-                        logging.error(f"Failed to write attachment {filename}: {e}")
-
-                    message.add_attachment(the_attachment)
-            elif attachment_type == TXT:
-                message.body = child.get(MMS_TEXT)
-        except Exception as e:
-            logging.error(f"{the_config.get_str(the_config.STR_COULD_NOT_PROCESS_MMS_PART)}: {e}")
-            pass
-
     # get the addresses
     for addr in mms.find(MMS_ADDRS):
         person_slug = ""
@@ -194,7 +168,7 @@ def parse_mms(mms, message, the_config):
         else:
             person_slug = the_config.me.slug
             if phone_number not in phone_numbers:
-                phone_numbers.append(the_config.me.mobile)
+                phone_numbers.append(the_config.me.contact.mobile)
 
         address_type = addr.get(MMS_TYPE)
 
@@ -209,8 +183,8 @@ def parse_mms(mms, message, the_config):
                 result = True
 
     # ensure my number is included
-    if the_config.me.mobile not in phone_numbers:
-        phone_numbers.append(the_config.me.mobile)
+    if the_config.me.contact.mobile not in phone_numbers:
+        phone_numbers.append(the_config.me.contact.mobile)
 
     if len(phone_numbers) > 2:
         message.group_slug = the_config.get_group_slug_by_phone_numbers(phone_numbers)
@@ -230,6 +204,33 @@ def parse_mms(mms, message, the_config):
     if not message.from_slug:
         # fallback: set to my slug
         message.from_slug = the_config.me.slug
+
+    # get the attachments OR text message between groups of people
+    for child in mms.find(MMS_PARTS):
+        try:
+            content_type = child.get(MMS_CT)
+            attachment_type = the_config.mime_types[content_type]
+
+            if attachment_type != TXT and attachment_type != SMIL:  
+                the_attachment = attachment.Attachment()
+                the_attachment.type = content_type
+                the_attachment.id = child.get(MMS_CL)
+
+                if the_attachment.id and the_attachment.id != "null":
+                    filename = the_config.create_media_folder(the_attachment.id, message.from_slug)
+                    try:
+                        with open(filename, 'wb') as mediaFile:
+                            decoded = base64.b64decode(child.get(MMS_DATA))
+                            mediaFile.write(decoded)
+                    except Exception as e:
+                        logging.error(f"Failed to write attachment {filename}: {e}")
+
+                    message.add_attachment(the_attachment)
+            elif attachment_type == TXT:
+                message.body = child.get(MMS_TEXT)
+        except Exception as e:
+            logging.error(f"{the_config.get_str(the_config.STR_COULD_NOT_PROCESS_MMS_PART)}: {e}")
+            pass
 
     return result
 
