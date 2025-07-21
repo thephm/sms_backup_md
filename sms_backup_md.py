@@ -85,13 +85,13 @@ def parse_common(sms_mms, message):
     """
     Parse the fields that are common between SMS and MMS messages.
 
-    Args:
-        sms_mms (XML): the actual message in XML format
-        message (Message): the target Message object (which will contain 
-            Attachment)
+    Parameters:
+    sms_mms (dict): the actual message in XML format
+    message (Message): the target Message object (which will contain 
+        Attachment)
 
     Returns:
-        None
+    None
     """
     message.phone_number = sms_mms.get(SMS_ADDRESS)
     try:
@@ -104,18 +104,18 @@ def get_existing_message(target_id, messages):
     """
     Check that the message hasn't already been found.
 
-    Args:
-        target_id (str): the message ID (SMS_IMDN_MESSAGE_ID or MMS_M_ID)
-        messages (list[Message]): collection of Messages
+    Parameters:
+    target_id (str): the message ID (SMS_IMDN_MESSAGE_ID or MMS_M_ID)
+    messages (list[Message]): collection of Messages
 
     Returns:
-        Message: The existing Message if found, False otherwise.
+    Message: The existing Message if found, False otherwise.
 
     Notes:
-        For some reason with SMS Backup & Restore Android tool, there are 
-        sometimes the same message as an SMS and and MMS in the export so 
-        needed a way to check if the message already exists in the
-        collection of messages.
+    For some reason with SMS Backup & Restore Android tool, there are 
+    sometimes the same message as an SMS and and MMS in the export so 
+    needed a way to check if the message already exists in the
+    collection of messages.
     """
     for message in messages:
         if target_id and message.id == target_id:
@@ -126,23 +126,23 @@ def parse_mms(mms, message, the_config):
     """
     Parse the MMS specific fields into a Message object: images or text.
 
-    Args:
-        mms (XML): the actual MMS message
-        message (Message): the target Message object which will contain 
-            Attachment
-        the_config (Config): the configuration object
+    Parameters:
+    mms (dict): the actual MMS message
+    message (Message): the target Message object which will contain 
+        Attachment
+    the_config (Config): the configuration object
 
     Returns:
-        bool: True if the message was parsed successfully, False otherwise.
+    bool: True if the message was parsed successfully, False otherwise.
 
     Notes:
-        - body of the message is base64 encoded binary content in `part`
-        - addr
-            address - The phone number of the sender/recipient.
-            type - The type of address, 129 = BCC, 130 = CC, 151 = To, 137 = From
-        - seems to be an Android issue where 'insert-address-token' gets put into
-          an address field so this function assumes the address was "me" which 
-          could be wrong but needed a person/name
+    - body of the message is base64 encoded binary content in `part`
+    - addr
+        address - The phone number of the sender/recipient.
+        type - The type of address, 129 = BCC, 130 = CC, 151 = To, 137 = From
+    - seems to be an Android issue where 'insert-address-token' gets put into
+      an address field so this function assumes the address was "me" which 
+      could be wrong but needed a person/name
     """
 
     result = False
@@ -238,12 +238,13 @@ def parse_sms(sms, message, the_config):
     """
     Parse the SMS specific fields.
 
-    Args:
-        sms (XML): the actual SMS message
-        message (Message): the target Message object
-        the_config (Config): the configuration object
+    Parameters:
+    sms (dict): the actual SMS message
+    message (Message): the target Message object
+    the_config (Config): the configuration object
+
     Returns:
-        bool: True if the message was parsed successfully, False otherwise.
+    bool: True if the message was parsed successfully, False otherwise.
     """
     
     result = False
@@ -275,14 +276,14 @@ def load_messages(filename, messages, reactions, the_config):
     """
     Load messages from the SMS Backup & Restore XML file.
     
-    Args:
-        filename (str): the path to the XML file    
-        messages (list[Message]): collection of Message objects
-        reactions (list[Reaction]): collection of Reaction objects (not used)
-        the_config (Config): the configuration object
+    Parameters:
+    filename (str): the path to the XML file    
+    messages (list[Message]): collection of Message objects
+    reactions (list[Reaction]): collection of Reaction objects (not used)
+    the_config (Config): the configuration object
     
     Returns:
-        bool: True if the messages were loaded successfully, False otherwise.
+    bool: True if the messages were loaded successfully, False otherwise.
     """
 
     p = XMLParser(huge_tree=True)
