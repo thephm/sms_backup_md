@@ -313,7 +313,8 @@ def load_messages(filename, messages, reactions, the_config):
                 if existing_message:
                     messages.remove(existing_message)
                     
-                if len(the_message.body):
+                # Include messages with text body OR attachments (MMS with media)
+                if len(the_message.body) or len(the_message.attachments) > 0:
                     messages.append(the_message)
 
     return True

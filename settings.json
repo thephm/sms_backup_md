@@ -1,0 +1,7 @@
+{
+  "source_folder": "./",
+  "output_folder": "./output",
+  "attachments_subfolder": "attachments",
+  "debug": false,
+  "logging_level": "INFO"
+}
