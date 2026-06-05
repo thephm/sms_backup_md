@@ -1,4 +1,3 @@
-
 sms_backup.xsl
 *.pyproj
 *.sln
@@ -6,3 +5,8 @@ sms_backup.xsl
 *.vs
 attachments
 bob.txt
+.venv/
+venv/
+test_*.py
+analyze_messages.py
+check_dates.py

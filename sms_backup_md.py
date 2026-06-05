@@ -1,3 +1,19 @@
+"""Parser for SMS Backup and Restore XML file output.
+
+References:
+1. Google Play app:
+    https://play.google.com/store/apps/details?id=com.riteshsahu.SMSBackupRestore
+2. Their site:
+    https://www.synctech.com.au/sms-backup-restore/
+3. Fields in the XML file:
+    https://www.synctech.com.au/sms-backup-restore/fields-in-xml-backup-files/
+
+In group messages phone numbers are joined with "~", e.g.
+address="+12895551212~+14165551313~+12895551414"
+
+Those addresses are also in the <addr></addr> attributes of the message.
+"""
+
 import os
 from lxml.etree import XMLParser, parse
 import xml.etree.ElementTree as ET
@@ -21,43 +37,22 @@ import message
 
 MIN_PHONE_NUMBER_LEN = 7
 
-#-----------------------------------------------------------------------------
-# 
-# Parser for SMS Backup and Restore XSL file output
-# 
-# References:
-# 
-# 1. Google Play app
-# https://play.google.com/store/apps/details?id=com.riteshsahu.SMSBackupRestore
-#
-# 2. Their site: https://www.synctech.com.au/sms-backup-restore/
-# 
-# 3. Fields in the XML file
-# https://www.synctech.com.au/sms-backup-restore/fields-in-xml-backup-files/
-# 
-# In group messages phone numbers are joined like this with ~
-# e.g. address="+12895551212~+14165551313~+12895551414"
-#
-# Those addresses are also in the `<addr></addr>' attributes of the message
-#
-#-----------------------------------------------------------------------------
-
-# message types
+"""Message types."""
 SMS = "sms"
 MMS = "mms"
 
-# SMS fields
+"""SMS fields."""
 SMS_TYPE = "type"
 SMS_DATE = "date"
 SMS_BODY = "body"
 SMS_ADDRESS = "address"
 SMS_IMDN_MESSAGE_ID = "imdn_message_id"
 
-# the `type` field values
+"""The `type` field values."""
 SMS_RECEIVED = "1"
 SMS_SENT = "2"
 
-# MMS fields
+"""MMS fields."""
 MMS_CT_T = "ct_t"
 MMS_CT = "ct"
 MMS_M_ID = "m_id"
@@ -69,15 +64,18 @@ MMS_TEXT = "text"
 MMS_ADDRS = "addrs"
 MMS_ADDR = "addr"
 
-# the `type` <addrs> attributes
+"""The `type` <addrs> attributes."""
 MMS_ADDRESS = "address"
 MMS_TYPE = "type"
 MMS_CC = "130"  
-MMS_FROM = "137"   # e.g. <addr address="+12895551212" type="137" charset="106" />
-MMS_TO = "151"     # e.g. <addr address="+12895551313" type="151" charset="106" />
-MMS_INSERT_ADDRESS_TOKEN = "insert-address-token" # possible bug in their XML output
+"""Example: <addr address="+12895551212" type="137" charset="106" />."""
+MMS_FROM = "137"
+"""Example: <addr address="+12895551313" type="151" charset="106" />."""
+MMS_TO = "151"
+"""Possible bug in SMS Backup & Restore XML output."""
+MMS_INSERT_ADDRESS_TOKEN = "insert-address-token"
 
-# MIME Types
+"""MIME types."""
 TXT = "txt"
 SMIL = "smil"
 
@@ -150,9 +148,10 @@ def parse_mms(mms, message, the_config):
     message.id = mms.get(MMS_M_ID)
     filename = ""
 
-    phone_numbers = []  # phone numbers for each person the message was sent to
+        """Phone numbers for each person the message was sent to."""
+        phone_numbers = []
 
-    # get the addresses
+        """Get the addresses."""
     for addr in mms.find(MMS_ADDRS):
         person_slug = ""
         phone_number = addr.get(MMS_ADDRESS)
@@ -182,7 +181,7 @@ def parse_mms(mms, message, the_config):
                 message.to_slugs.append(person_slug) 
                 result = True
 
-    # ensure my number is included
+    """Ensure my number is included."""
     if the_config.me.contact.mobile not in phone_numbers:
         phone_numbers.append(the_config.me.contact.mobile)
 
@@ -190,9 +189,7 @@ def parse_mms(mms, message, the_config):
         message.group_slug = the_config.get_group_slug_by_phone_numbers(phone_numbers)
         result = True
     elif len(phone_numbers) == 1:
-        # https://github.com/thephm/sms_backup_md/issues/7
-        # Messages with MMS images not placed in the same file as conversation
-        # This is caused because my phone number is not included
+        """Issue #7: MMS images can be separated when my number is missing."""
         if address_type == MMS_FROM or address_type == MMS_CC:
             message.to_slugs.append(the_config.me.slug) 
             result = True
@@ -202,10 +199,10 @@ def parse_mms(mms, message, the_config):
             result = True
 
     if not message.from_slug:
-        # fallback: set to my slug
+        """Fallback: set to my slug."""
         message.from_slug = the_config.me.slug
 
-    # get the attachments OR text message between groups of people
+    """Get the attachments or group text message content."""
     for child in mms.find(MMS_PARTS):
         try:
             content_type = child.get(MMS_CT)
@@ -307,34 +304,33 @@ def load_messages(filename, messages, reactions, the_config):
                 result = parse_mms(child, the_message, the_config)
             
             if result:
-                # to fix https://github.com/thephm/sms_backup_md/issues/2  
-                # and now https://github.com/thephm/sms_backup_md/issues/13
+                """Fixes duplicate handling for issues #2 and #13."""
                 existing_message = get_existing_message(the_message.id, messages)
                 if existing_message:
                     messages.remove(existing_message)
                     
-                # Include messages with text body OR attachments (MMS with media)
+                """Include messages with text body or MMS media attachments."""
                 if len(the_message.body) or len(the_message.attachments) > 0:
                     messages.append(the_message)
 
     return True
 
-# main
+"""Main execution."""
 
 the_messages = []
-the_reactions = [] # required by `message_md` but not used for SMS messages
+"""Required by message_md but not used for SMS messages."""
+the_reactions = []
 
 the_config = config.Config()
 
-# set up logging
+"""Set up logging."""
 logging.basicConfig(
     level=logging.INFO,
     format='%(levelname)s:%(name)s:%(message)s'
 )
 
 if message_md.setup(the_config, markdown.YAML_SERVICE_SMS):
-    # create the working folder `attachments` under the source message folder
-    # so media files can be created there from the MMS messages
+    """Create attachments folder under source so MMS media can be written."""
     folder = os.path.join(the_config.source_folder, the_config.attachments_subfolder)
     try:
         if not os.path.exists(folder):
@@ -342,8 +338,7 @@ if message_md.setup(the_config, markdown.YAML_SERVICE_SMS):
     except Exception as e:
         logging.error(f"{the_config.get_str(the_config.STR_COULD_NOT_CREATE_ATTACHMENTS_SUBFOLDER)}: {folder}. Error: {str(e)}")
 
-    # needs to be after setup so the command line parameters override the
-    # values defined in the settings file
+    """Run after setup so CLI parameters override settings-file values."""
     message_md.get_markdown(the_config, load_messages, the_messages, the_reactions)
 else:
     print(f"{the_config.get_str(the_config.STR_COULD_NOT_SETUP)}")
