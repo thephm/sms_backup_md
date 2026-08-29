@@ -10,3 +10,5 @@ venv/
 test_*.py
 analyze_messages.py
 check_dates.py
+*.pyc
+*sync-conflict*

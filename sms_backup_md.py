@@ -148,10 +148,10 @@ def parse_mms(mms, message, the_config):
     message.id = mms.get(MMS_M_ID)
     filename = ""
 
-        """Phone numbers for each person the message was sent to."""
-        phone_numbers = []
+    """Phone numbers for each person the message was sent to."""
+    phone_numbers = []
 
-        """Get the addresses."""
+    """Get the addresses."""
     for addr in mms.find(MMS_ADDRS):
         person_slug = ""
         phone_number = addr.get(MMS_ADDRESS)
