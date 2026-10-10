@@ -19,8 +19,6 @@ from lxml.etree import XMLParser, parse
 import xml.etree.ElementTree as ET
 import base64
 
-import pathlib
-from pathlib import Path
 from os.path import exists
 
 import logging
@@ -330,14 +328,6 @@ logging.basicConfig(
 )
 
 if message_md.setup(the_config, markdown.YAML_SERVICE_SMS):
-    """Create attachments folder under source so MMS media can be written."""
-    folder = os.path.join(the_config.source_folder, the_config.attachments_subfolder)
-    try:
-        if not os.path.exists(folder):
-            Path(folder).mkdir(parents=True, exist_ok=True)
-    except Exception as e:
-        logging.error(f"{the_config.get_str(the_config.STR_COULD_NOT_CREATE_ATTACHMENTS_SUBFOLDER)}: {folder}. Error: {str(e)}")
-
     """Run after setup so CLI parameters override settings-file values."""
     message_md.get_markdown(the_config, load_messages, the_messages, the_reactions)
 else:

@@ -6,8 +6,10 @@ sms_backup.xsl
 attachments
 bob.txt
 .venv/
+.venv-wsl/
 venv/
 test_*.py
+!test_conversion.py
 analyze_messages.py
 check_dates.py
 *.pyc
