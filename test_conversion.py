@@ -3,16 +3,20 @@ import contextlib
 import io
 import json
 from pathlib import Path
+import runpy
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+from xml.etree.ElementTree import fromstring
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent / "hal"))
 sys.path.insert(0, str(ROOT.parent / "message_md"))
 
 import config
+import attachment
 import markdown
 import message
 import person
@@ -157,6 +161,308 @@ class ConversionTests(unittest.TestCase):
         self.assertEqual((output / "media" / "photo.jpg").read_bytes(), image)
         self.assertFalse((source / "attachments").exists())
         self.assertTrue((source / "messages.xml").exists())
+
+    def test_duplicate_mms_preserves_group_and_media_in_either_order(self):
+        self.load_people([
+            {"slug": "me", "first_name": "Me", "mobile": "2025550101"},
+            {"slug": "pat", "first_name": "Pat", "mobile": "2025550102"},
+            {"slug": "sam", "first_name": "Sam", "mobile": "2025550103"},
+        ])
+        (self.folder / "groups.json").write_text(
+            json.dumps({"groups": [{
+                "id": "synthetic-group", "slug": "friends",
+                "description": "Synthetic group", "people": ["me", "pat", "sam"],
+            }]}), encoding="utf-8"
+        )
+        settings = json.loads(
+            (ROOT.parent / "message_md" / "config" / "settings.json").read_text()
+        )
+        settings["messages-file"] = "messages.xml"
+        (self.folder / "settings.json").write_text(
+            json.dumps(settings), encoding="utf-8"
+        )
+        source = self.folder / "source"
+        source.mkdir()
+        video = b"synthetic video bytes"
+        encoded = base64.b64encode(video).decode("ascii")
+        group_copy = f"""<mms address="group@rcs.google.com"
+    date="1791736856000" m_id="shared-video">
+  <addrs>
+    <addr address="+12025550102" type="137"/>
+    <addr address="+12025550103" type="151"/>
+  </addrs>
+  <parts>
+    <part ct="text/plain" text="Group video"/>
+    <part ct="video/mp4" cl="null" name="video.mp4" data="{encoded}"/>
+  </parts>
+</mms>"""
+        direct_copy = f"""<mms address="+12025550102"
+    date="1791736856929" m_id="shared-video">
+  <addrs><addr address="+12025550102" type="137"/></addrs>
+  <parts><part ct="video/mp4" cl="video.mp4" data="{encoded}"/></parts>
+</mms>"""
+        media_only_group = group_copy.replace(
+            '    <part ct="text/plain" text="Group video"/>\n', ""
+        )
+        for order, records in enumerate((
+            [group_copy, direct_copy], [direct_copy, group_copy], [group_copy],
+            [media_only_group, direct_copy], [direct_copy, media_only_group],
+            [media_only_group],
+        )):
+            with self.subTest(order=order):
+                (source / "messages.xml").write_text(
+                    "<smses>" + "".join(records) + "</smses>", encoding="utf-8"
+                )
+                output = self.folder / f"output-{order}"
+                result = subprocess.run(
+                    [sys.executable, str(ROOT / "sms_backup_md.py"),
+                     "-c", str(self.folder), "-s", str(source),
+                     "-f", "messages.xml", "-o", str(output),
+                     "-m", "me", "-b", "1970-01-01", "-d"],
+                    cwd=ROOT, capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                note = output / "People" / "groups" / "friends" / "2026-10-11.md"
+                self.assertTrue(note.exists(), result.stdout + result.stderr)
+                text = note.read_text(encoding="utf-8")
+                self.assertEqual(text.count("[[video.mp4]]"), 1, text)
+                self.assertIn("![[video.mp4]]", text)
+                if group_copy in records:
+                    self.assertIn("> Group video", text)
+                self.assertIn("Pat ", text)
+                self.assertFalse(list((output / "People" / "pat").glob("*.md")))
+                media = list(output.rglob("video.mp4"))
+                self.assertTrue(media)
+                for path in media:
+                    self.assertEqual(path.read_bytes(), video)
+
+    def test_media_and_following_comment_have_plain_blank_separator(self):
+        self.load_people([
+            {"slug": "me", "first_name": "Me", "mobile": "2025550101"},
+            {"slug": "pat", "first_name": "Pat", "mobile": "2025550102"},
+        ])
+        self.cfg.file_per_day = True
+        self.cfg.folder_per_person = True
+        self.cfg.file_per_person = True
+        self.cfg.people_subfolder = "People"
+        self.cfg.image_embed = True
+        self.cfg.image_width = 450
+        for combined in (False, True):
+            with self.subTest(combined=combined):
+                video = attachment.Attachment()
+                video.id = "video.mp4"
+                video.type = "video/mp4"
+                media = message.Message()
+                media.from_slug = "pat"
+                media.to_slugs = ["me"]
+                media.timestamp = 1791736856
+                media.set_date_time()
+                media.add_attachment(video)
+                comment = message.Message()
+                comment.from_slug = "pat"
+                comment.to_slugs = ["me"]
+                comment.timestamp = media.timestamp + 60
+                comment.set_date_time()
+                comment.body = "Bring pajamas tomorrow."
+                followup = message.Message()
+                followup.from_slug = "pat"
+                followup.to_slugs = ["me"]
+                followup.timestamp = comment.timestamp + 60
+                followup.set_date_time()
+                followup.body = "Thanks!"
+                if combined:
+                    media.body = comment.body
+                    messages = [media, followup]
+                else:
+                    messages = [media, comment, followup]
+                self.cfg.people[1].messages = []
+                message.add_messages(messages, self.cfg)
+                output = self.folder / f"render-{combined}"
+                output.mkdir()
+                markdown.create_markdown_files(self.cfg.people[1], str(output), self.cfg)
+                text = (output / f"{media.date_str}.md").read_text(encoding="utf-8")
+                self.assertIn(
+                    "![[video.mp4]]\n\n> Bring pajamas tomorrow.\n> \n> Thanks!",
+                    text,
+                )
+
+    def test_own_numbers_write_sms_and_mms_to_personal_notes(self):
+        self.load_people([
+            {"slug": "me", "first_name": "Me", "mobile": "2025550101"},
+        ])
+        self.cfg.daily_notes_subfolder = "Personal Notes"
+        self.cfg.mime_types = {"text/plain": "txt", "image/jpeg": "jpg"}
+        with patch("message_md.setup", return_value=False):
+            with contextlib.redirect_stdout(io.StringIO()):
+                parser = runpy.run_path(str(ROOT / "sms_backup_md.py"))
+
+        primary = self.cfg.me.contact.mobile
+        work = "2025550199"
+        lookup = self.cfg.get_person_by_number
+        def resolve_number(number):
+            return self.cfg.me if number == work else lookup(number)
+
+        image = b"personal note image"
+        encoded = base64.b64encode(image).decode("ascii")
+        messages = []
+        with patch.object(self.cfg, "get_person_by_number", side_effect=resolve_number):
+            with patch.object(self.cfg, "get_group_slug_by_phone_numbers") as group_lookup:
+                for sender, recipient in (
+                    (work, primary), (primary, work),
+                    ("+12025550101", primary), (work, None), (None, work),
+                    ("insert-address-token", work),
+                ):
+                    with self.subTest(sender=sender, recipient=recipient):
+                        addrs = ""
+                        if sender:
+                            addrs += f'<addr address="{sender}" type="137"/>'
+                        if recipient:
+                            addrs += f'<addr address="{recipient}" type="151"/>'
+                        if sender and recipient:
+                            addrs += '<addr address="+12025550101" type="151"/>'
+                        mms = fromstring(f"""<mms date="1704110400000">
+  <addrs>{addrs}</addrs>
+  <parts>
+    <part ct="text/plain" text="Remember this"/>
+    <part ct="image/jpeg" cl="note.jpg" data="{encoded}"/>
+  </parts>
+</mms>""")
+                        msg = message.Message()
+                        parser["parse_common"](mms, msg)
+                        self.assertTrue(parser["parse_mms"](mms, msg, self.cfg))
+                        self.assertEqual(msg.from_slug, "me")
+                        self.assertEqual(msg.to_slugs, ["me"])
+                        self.assertEqual(msg.group_slug, "")
+                        self.assertTrue(msg.is_note_to_self())
+                        messages.append(msg)
+                for direction in ("1", "2"):
+                    sms = fromstring(
+                        f'<sms address="{work}" date="1704110400000" '
+                        f'type="{direction}" body="SMS note"/>'
+                    )
+                    msg = message.Message()
+                    parser["parse_common"](sms, msg)
+                    self.assertTrue(parser["parse_sms"](sms, msg, self.cfg))
+                    self.assertTrue(msg.is_note_to_self())
+                    messages.append(msg)
+                group_lookup.assert_not_called()
+
+        message.add_messages(messages, self.cfg)
+        markdown.create_markdown_files(
+            self.cfg.people[0],
+            str(Path(self.cfg.output_folder) / "People" / "me"), self.cfg,
+        )
+        output = Path(self.cfg.output_folder) / "Personal Notes"
+        text = (output / f"{messages[0].date_str}.md").read_text(encoding="utf-8")
+        self.assertEqual(text.count("Remember this"), 6)
+        self.assertEqual(text.count("SMS note"), 2)
+        self.assertIn("![[note.jpg|450]]", text)
+        self.assertEqual((output / "media" / "note.jpg").read_bytes(), image)
+        self.assertFalse((Path(self.cfg.output_folder) / "People").exists())
+
+    def test_mms_counts_people_instead_of_phone_number_variants(self):
+        self.load_people([
+            {"slug": "me", "first_name": "Me", "mobile": "2025550101"},
+            {"slug": "pat", "first_name": "Pat", "mobile": "2025550102"},
+        ])
+        self.cfg.mime_types = {"text/plain": "txt"}
+        with patch("message_md.setup", return_value=False):
+            with contextlib.redirect_stdout(io.StringIO()):
+                parser = runpy.run_path(str(ROOT / "sms_backup_md.py"))
+        mms = fromstring("""<mms>
+  <addrs>
+    <addr address="2025550102" type="137"/>
+    <addr address="+12025550102" type="151"/>
+    <addr address="+12025550101" type="151"/>
+  </addrs>
+  <parts><part ct="text/plain" text="Not a group or a personal note"/></parts>
+</mms>""")
+        msg = message.Message()
+        with patch.object(self.cfg, "get_group_slug_by_phone_numbers") as lookup:
+            self.assertTrue(parser["parse_mms"](mms, msg, self.cfg))
+            lookup.assert_not_called()
+        self.assertEqual(msg.from_slug, "pat")
+        self.assertEqual(msg.group_slug, "")
+        self.assertFalse(msg.is_note_to_self())
+
+    def test_rerunning_conversion_leaves_existing_dated_note_unchanged(self):
+        self.load_people([
+            {"slug": "me", "first_name": "Me", "mobile": "2025550101"},
+            {"slug": "pat", "first_name": "Pat", "mobile": "2025550102"},
+        ])
+        messages = []
+        for sender, recipient, body in (
+            ("pat", "me", "Happy Thanksgiving"),
+            ("me", "pat", "Thanks!"),
+        ):
+            msg = message.Message()
+            msg.from_slug = sender
+            msg.to_slugs = [recipient]
+            msg.body = body
+            msg.timestamp = 1791842523 + len(messages) * 360
+            msg.set_date_time()
+            messages.append(msg)
+        message.add_messages(messages, self.cfg)
+        output = self.folder / "render"
+        output.mkdir()
+        contact = self.cfg.people[1]
+        markdown.create_markdown_files(contact, str(output), self.cfg)
+        note = output / f"{messages[0].date_str}.md"
+        original = note.read_bytes()
+        for age in (0, 60):
+            with self.subTest(age=age):
+                with patch("markdown.os.path.getctime", return_value=1000-age):
+                    markdown.create_markdown_files(contact, str(output), self.cfg)
+                self.assertEqual(note.read_bytes(), original)
+
+    def test_missing_or_invalid_mms_data_does_not_create_or_truncate_media(self):
+        self.cfg.mime_types = {"video/mp4": "mp4"}
+        self.cfg.people_subfolder = "People"
+        self.cfg.media_subfolder = "media"
+        self.load_people([
+            {"slug": "me", "first_name": "Me", "mobile": "2025550101"},
+            {"slug": "pat", "first_name": "Pat", "mobile": "2025550102"},
+        ])
+        with patch("message_md.setup", return_value=False):
+            with contextlib.redirect_stdout(io.StringIO()):
+                parser = runpy.run_path(str(ROOT / "sms_backup_md.py"))
+
+        for data in (None, "", " \n ", "null", "invalid-base64", "!!!!"):
+            for existing in (False, True):
+                with self.subTest(data=data, existing=existing):
+                    media = Path(self.cfg.output_folder) / "People" / "pat" / "media"
+                    filename = media / "video.mp4"
+                    if existing:
+                        media.mkdir(parents=True, exist_ok=True)
+                        filename.write_bytes(b"existing valid video")
+                    elif filename.exists():
+                        filename.unlink()
+                    mms = fromstring("""<mms m_id="missing-video">
+  <addrs>
+    <addr address="2025550102" type="137"/>
+    <addr address="2025550101" type="151"/>
+  </addrs>
+  <parts><part ct="video/mp4" cl="null" name="video.mp4"/></parts>
+</mms>""")
+                    if data is not None:
+                        mms.find("parts/part").set("data", data)
+                    msg = message.Message()
+                    level = "ERROR" if data in ("invalid-base64", "!!!!") else "WARNING"
+                    with self.assertLogs(level=level) as logs:
+                        self.assertTrue(parser["parse_mms"](mms, msg, self.cfg))
+                    self.assertIn("video.mp4", "\n".join(logs.output))
+                    self.assertEqual([a.id for a in msg.attachments], ["video.mp4"])
+                    if existing:
+                        self.assertEqual(filename.read_bytes(), b"existing valid video")
+                    else:
+                        self.assertFalse(filename.exists())
+
+        mms.find("parts/part").set(
+            "data", "\n" + base64.b64encode(b"valid video").decode("ascii") + "\n"
+        )
+        with self.assertNoLogs(level="WARNING"):
+            self.assertTrue(parser["parse_mms"](mms, message.Message(), self.cfg))
+        self.assertEqual(filename.read_bytes(), b"valid video")
 
 
 if __name__ == "__main__":

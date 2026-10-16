@@ -57,6 +57,7 @@ MMS_M_ID = "m_id"
 MMS_PARTS = "parts"
 MMS_PART = "part"
 MMS_CL = "cl"
+MMS_NAME = "name"
 MMS_DATA = "data"
 MMS_TEXT = "text"
 MMS_ADDRS = "addrs"
@@ -148,6 +149,7 @@ def parse_mms(mms, message, the_config):
 
     """Phone numbers for each person the message was sent to."""
     phone_numbers = []
+    participant_slugs = set()
 
     """Get the addresses."""
     for addr in mms.find(MMS_ADDRS):
@@ -170,6 +172,7 @@ def parse_mms(mms, message, the_config):
         address_type = addr.get(MMS_TYPE)
 
         if person_slug:
+            participant_slugs.add(person_slug)
             
             if address_type == MMS_FROM or address_type == MMS_CC:
                 message.from_slug = person_slug
@@ -183,7 +186,11 @@ def parse_mms(mms, message, the_config):
     if the_config.me.contact.mobile not in phone_numbers:
         phone_numbers.append(the_config.me.contact.mobile)
 
-    if len(phone_numbers) > 2:
+    if participant_slugs == {the_config.me.slug}:
+        message.from_slug = the_config.me.slug
+        message.to_slugs = [the_config.me.slug]
+        result = True
+    elif len(participant_slugs | {the_config.me.slug}) > 2:
         message.group_slug = the_config.get_group_slug_by_phone_numbers(phone_numbers)
         result = True
     elif len(phone_numbers) == 1:
@@ -210,17 +217,30 @@ def parse_mms(mms, message, the_config):
                 the_attachment = attachment.Attachment()
                 the_attachment.type = content_type
                 the_attachment.id = child.get(MMS_CL)
+                if not the_attachment.id or the_attachment.id == "null":
+                    the_attachment.id = child.get(MMS_NAME)
 
                 if the_attachment.id and the_attachment.id != "null":
-                    filename = the_config.create_media_folder(the_attachment.id, message.from_slug)
-                    try:
-                        with open(filename, 'wb') as mediaFile:
-                            decoded = base64.b64decode(child.get(MMS_DATA))
-                            mediaFile.write(decoded)
-                    except Exception as e:
-                        logging.error(f"Failed to write attachment {filename}: {e}")
-
                     message.add_attachment(the_attachment)
+                    encoded = child.get(MMS_DATA)
+                    if not encoded or not encoded.strip() or encoded.strip() == "null":
+                        logging.warning(
+                            "Attachment %s in message %s has no embedded data; "
+                            "retaining its reference without writing a media file.",
+                            the_attachment.id, message.id,
+                        )
+                        continue
+                    try:
+                        decoded = base64.b64decode("".join(encoded.split()), validate=True)
+                        if message.is_note_to_self():
+                            folder = markdown.create_daily_notes_folders(the_config)
+                            filename = os.path.join(folder, the_config.media_subfolder, the_attachment.id)
+                        else:
+                            filename = the_config.create_media_folder(the_attachment.id, message.from_slug)
+                        with open(filename, 'wb') as mediaFile:
+                            mediaFile.write(decoded)
+                    except (ValueError, OSError) as e:
+                        logging.error(f"Failed to write attachment {the_attachment.id}: {e}")
             elif attachment_type == TXT:
                 message.body = child.get(MMS_TEXT)
         except Exception as e:
@@ -305,6 +325,18 @@ def load_messages(filename, messages, reactions, the_config):
                 """Fixes duplicate handling for issues #2 and #13."""
                 existing_message = get_existing_message(the_message.id, messages)
                 if existing_message:
+                    if existing_message.group_slug and not the_message.group_slug:
+                        the_message.group_slug = existing_message.group_slug
+                        the_message.phone_number = existing_message.phone_number
+                        the_message.from_slug = existing_message.from_slug
+                        the_message.to_slugs = existing_message.to_slugs
+                    if not the_message.body:
+                        the_message.body = existing_message.body
+                    attachment_ids = {item.id for item in the_message.attachments}
+                    for item in existing_message.attachments:
+                        if item.id not in attachment_ids:
+                            the_message.add_attachment(item)
+                            attachment_ids.add(item.id)
                     messages.remove(existing_message)
                     
                 """Include messages with text body or MMS media attachments."""
