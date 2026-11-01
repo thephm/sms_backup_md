@@ -132,6 +132,8 @@ class ConversionTests(unittest.TestCase):
         source.mkdir()
         image = b"synthetic image bytes"
         encoded = base64.b64encode(image).decode("ascii")
+        screenshot = b"synthetic screenshot bytes"
+        encoded_screenshot = base64.b64encode(screenshot).decode("ascii")
         xml = f"""<smses>
 <sms address="2025550102" date="1704110400000" type="1" body="Incoming SMS"/>
 <sms address="2025550102" date="1704110460000" type="2" body="Outgoing SMS"/>
@@ -140,7 +142,10 @@ class ConversionTests(unittest.TestCase):
     <addr address="2025550102" type="137"/>
     <addr address="2025550101" type="151"/>
   </addrs>
-  <parts><part ct="image/jpeg" cl="photo.jpg" data="{encoded}"/></parts>
+  <parts>
+    <part ct="image/jpeg" cl="photo.jpg" data="{encoded}"/>
+    <part ct="image/jpeg" cl="Screenshot_2026-10-11.jpg" data="{encoded_screenshot}"/>
+  </parts>
 </mms>
 </smses>"""
         (source / "messages.xml").write_text(xml, encoding="utf-8")
@@ -158,7 +163,12 @@ class ConversionTests(unittest.TestCase):
         self.assertIn("> Incoming SMS", text)
         self.assertIn("> Outgoing SMS", text)
         self.assertIn("![[photo.jpg|450]]", text)
+        self.assertIn("![[Screenshot_2026-10-11.jpg|250]]", text)
         self.assertEqual((output / "media" / "photo.jpg").read_bytes(), image)
+        self.assertEqual(
+            (output / "media" / "Screenshot_2026-10-11.jpg").read_bytes(),
+            screenshot,
+        )
         self.assertFalse((source / "attachments").exists())
         self.assertTrue((source / "messages.xml").exists())
 
